@@ -62,6 +62,7 @@ function apply_rtMagnificPopup(selector) {
         delegate:
           "a:not(.no-popup, .mejs-time-slider, .mejs-volume-slider, .mejs-horizontal-volume-slider)",
         type: "ajax",
+        allowHTMLInTemplate: true,
         fixedContentPos: true,
         fixedBgPos: true,
         tLoading: rt_load_more + " #%curr%...",
@@ -342,9 +343,9 @@ jQuery("document").ready(function ($) {
           "get_single_activity_content" === get_action ||
           "activity_get_older_updates" === get_action) &&
         "undefined" !== typeof rtmedia_masonry_layout &&
-        "true" === rtmedia_masonry_layout &&
+        rtm_is_true(rtmedia_masonry_layout) &&
         "undefined" !== typeof rtmedia_masonry_layout_activity &&
-        "true" === rtmedia_masonry_layout_activity
+        rtm_is_true(rtmedia_masonry_layout_activity)
       ) {
         setTimeout(function () {
           apply_rtMagnificPopup(
@@ -1066,9 +1067,9 @@ jQuery("document").ready(function ($) {
   // Masonry code for activity
   if (
     typeof rtmedia_masonry_layout != "undefined" &&
-    rtmedia_masonry_layout == "true" &&
+    rtm_is_true(rtmedia_masonry_layout) &&
     typeof rtmedia_masonry_layout_activity != "undefined" &&
-    rtmedia_masonry_layout_activity == "true"
+    rtm_is_true(rtmedia_masonry_layout_activity)
   ) {
     // Arrange media into masonry view
     rtmedia_activity_masonry();
@@ -1083,9 +1084,9 @@ jQuery("document").ready(function ($) {
         "get_single_activity_content" === get_action ||
         "activity_get_older_updates" === get_action) &&
       typeof rtmedia_masonry_layout != "undefined" &&
-      rtmedia_masonry_layout == "true" &&
+      rtm_is_true(rtmedia_masonry_layout) &&
       typeof rtmedia_masonry_layout_activity != "undefined" &&
-      rtmedia_masonry_layout_activity == "true"
+      rtm_is_true(rtmedia_masonry_layout_activity)
     ) {
       rtmedia_activity_masonry();
     }
@@ -1094,7 +1095,7 @@ jQuery("document").ready(function ($) {
   // Masonry code
   if (
     typeof rtmedia_masonry_layout != "undefined" &&
-    rtmedia_masonry_layout == "true" &&
+    rtm_is_true(rtmedia_masonry_layout) &&
     jQuery(".rtmedia-container .rtmedia-list.rtm-no-masonry").length == 0
   ) {
     rtm_masonry_container = jQuery(".rtmedia-container .rtmedia-list");
@@ -1191,7 +1192,7 @@ jQuery("document").ready(function ($) {
 
             if (
               "undefined" !== typeof rtmedia_masonry_layout &&
-              "true" === rtmedia_masonry_layout
+              rtm_is_true(rtmedia_masonry_layout)
             ) {
               rtm_masonry_reload(rtm_masonry_container);
             }
@@ -1232,6 +1233,16 @@ function bp_media_create_element(id) {
   return false;
 }
 
+/**
+ * Check if a value is true (handles both string "true" and boolean true).
+ *
+ * @param {*} value The value to check.
+ * @return {boolean} True if the value is "true" (string) or true (boolean).
+ */
+function rtm_is_true(value) {
+  return "true" === value || true === value;
+}
+
 function rtmedia_version_compare(left, right) {
   if (typeof left + typeof right != "stringstring") {
     return false;
@@ -1270,7 +1281,17 @@ function rtm_is_element_exist(el) {
 function rtm_masonry_reload(el) {
   setTimeout(function () {
     // We make masonry recalculate the element based on their current state.
-    el.masonry("reload");
+    // Check if masonry instance exists and use the appropriate method.
+    var masonryInstance = el.data('masonry');
+    if (masonryInstance) {
+      // Masonry v4.x uses reloadItems() + layout() instead of reload()
+      if (typeof masonryInstance.reload === 'function') {
+        el.masonry("reload");
+      } else if (typeof masonryInstance.reloadItems === 'function') {
+        masonryInstance.reloadItems();
+        masonryInstance.layout();
+      }
+    }
   }, 250);
 }
 
@@ -1312,7 +1333,7 @@ function rtm_masonry_reload(el) {
           var $this = $(this);
           if ($this.hasClass("less")) {
             $this.removeClass("less");
-            $this.html(config.moreText);
+            $this.text(config.moreText);
             $this
               .parent()
               .prev()
@@ -1324,7 +1345,7 @@ function rtm_masonry_reload(el) {
               });
           } else {
             $this.addClass("less");
-            $this.html(config.lessText);
+            $this.text(config.lessText);
             $this
               .parent()
               .prev()
@@ -1407,25 +1428,24 @@ function rtm_masonry_reload(el) {
               }
             }
           }
-          c = $("<div/>")
-            .html(
-              bag + '<span class="ellip">' + config.ellipsesText + "</span>"
-            )
-            .html();
+          var $container = $("<div/>").html(bag);
+          var $ellipsisSpan = $("<span/>").addClass("ellip").text(config.ellipsesText);
+          $container.append($ellipsisSpan);
+          c = $container.html();
         } else {
           c += config.ellipsesText;
         }
 
-        var html =
-          '<div class="shortcontent">' +
-          c +
-          '</div><div class="allcontent">' +
-          content +
-          '</div><span><a href="javascript://nop/" class="morelink">' +
-          config.moreText +
-          "</a></span>";
+        var $shortContent = jQuery('<div class="shortcontent"></div>').html(c);
+        var $allContent = jQuery('<div class="allcontent"></div>').html(content);
+        var $moreLink = jQuery('<span><a href="javascript://nop/" class="morelink"></a></span>');
 
-        $this.html(html);
+          $this.empty()
+            .append($shortContent)
+            .append($allContent)
+            .append($moreLink);
+
+        $this.find(".morelink").text(config.moreText);
         $this.find(".allcontent").hide(); // Hide all text
         $(".shortcontent p:last", $this).css("margin-bottom", 0); //Remove bottom margin on last paragraph as it's likely shortened
       }

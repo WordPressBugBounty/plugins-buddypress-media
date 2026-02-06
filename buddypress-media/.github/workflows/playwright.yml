@@ -13,6 +13,9 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   Run-wpe2e-TestCase:
     # The type of runner that the job will run on
@@ -25,7 +28,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
@@ -36,14 +39,14 @@ jobs:
           ls -al
         # Install config site
       - name: Install and config site
-        uses: docker://rtcamp/base-wo:v1.0.0
+        uses: docker://rtcamp/base-wo:v1.1.0
         env:
-          NODE_VERSION: 17
+          NODE_VERSION: 22
           RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
 
       - name: Archive HTML Report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: report
           path: ./tests/wp-e2e-playwright/playwright-report

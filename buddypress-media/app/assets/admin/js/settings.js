@@ -156,7 +156,7 @@ jQuery( document ).ready( function ( $ ) {
 			if ( ! reg.test( current_element.val() ) ) {
 				var name_attr = current_element.attr( 'name' );
 				name_attr = name_attr.replace( 'rtmedia-options[defaultSizes_', '' );
-				name_attr = name_attr.replace( ']', '' );
+				name_attr = name_attr.replace( /\]/g, '' );
 				name_attr = name_attr.replace( /_/g, ' ' );
 				var error_msg = RTMedia_Admin_Settings_JS.rtmedia_default_sizes_error_message;
 				error_msg = error_msg.replace( '[default_size_property]', name_attr );
@@ -810,8 +810,10 @@ jQuery( document ).ready( function ( $ ) {
 			email: jQuery( '.email' ).val(),
 			url: jQuery( '.url' ).val(),
 			choice: jQuery( 'input[name="choice"]:checked' ).val(),
-			interested: jQuery( 'input[name="interested"]:checked' ).val()
+			interested: jQuery( 'input[name="interested"]:checked' ).val(),
+			wp_nonce: RTMedia_Admin_Settings_JS?.rtmedia_buddypress_convert_nonce ?? ''
 		};
+		
 		jQuery.post( ajaxurl, data, function ( response ) {
 			var p_data = {
 				msg :response,
@@ -1064,11 +1066,15 @@ jQuery( document ).ready( function ( $ ) {
 						jQuery('.rtm-button-container.top').append( setting_message );
 						setting_message.delay( 3000 ).fadeOut( 100 );
 					}
+					// Return early for import/export settings responses to avoid JSON.parse on already-parsed object.
+					return;
 				}
 
 				if ( typeof data.error === 'undefined' ) {
-
-					data = JSON.parse( data );
+					// Only parse if data is a string (not already parsed by jQuery).
+					if ( typeof data === 'string' ) {
+						data = JSON.parse( data );
+					}
 					if ( data.exceed_size_msg ) {
 						jQuery( '#debuglog' ).val( '' );
 						alert( data.exceed_size_msg );

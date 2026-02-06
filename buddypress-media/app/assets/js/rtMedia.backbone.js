@@ -7,6 +7,29 @@ var objUploadView;
 var rtmedia_load_template_flag = true;
 var rtmedia_add_media_button_post_update = false;
 
+/**
+ * Prevents XSS by escaping special HTML characters in strings (like file names).
+ */
+function rtm_escape_html(text) {
+  if (!text) return text;
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Prevents DOM Selector Injection by ensuring IDs only contain safe characters.
+ */
+function sanitizeCommentMediaId(id) {
+  if (typeof id === "undefined" || id === null) {
+    return "";
+  }
+  return String(id).replace(/[^0-9a-zA-Z_\-]/g, "");
+}
+
 jQuery(document).ready(function () {
   // Need to pass the object[key] as global variable.
   if ("object" === typeof rtmedia_backbone) {
@@ -256,6 +279,7 @@ jQuery(function ($) {
             backbone: true,
             is_album: o_is_album,
             is_edit_allowed: o_is_edit_allowed,
+            wp_nonce: rtmedia_backbone_strings?.rtmedia_album_gallery_nonce,
           },
           function () {
             rtmedia_load_template_flag = false;
@@ -808,10 +832,23 @@ jQuery(function ($) {
   });
 
   if ($("#rtMedia-upload-button").length > 0) {
+    // Check if media_type is specified in shortcode via data attribute
+    var uploaderForm = jQuery("#rtmedia-uploader-form");
+    var mediaTypeFilter = uploaderForm.data("media-type");
+    
     if (
+      mediaTypeFilter &&
+      typeof rtmedia_exteansions == "object" &&
+      rtmedia_exteansions[mediaTypeFilter]
+    ) {
+      // Use the specific media type extensions from shortcode attribute
+      rtMedia_plupload_config.filters[0].extensions =
+        rtmedia_exteansions[mediaTypeFilter].join();
+    } else if (
       typeof rtmedia_upload_type_filter == "object" &&
       rtmedia_upload_type_filter.length > 0
     ) {
+      // Fallback to old method for backward compatibility
       rtMedia_plupload_config.filters[0].extensions =
         rtmedia_upload_type_filter.join();
     }
@@ -2515,14 +2552,19 @@ function rtmedia_selected_file_list(
     }
   }
 
+  var safeCommentMediaId = sanitizeCommentMediaId(comment_media_id);
+
   rtmedia_uploader_filelist =
-    typeof comment_media_id === "undefined"
+    typeof comment_media_id === "undefined" || safeCommentMediaId === ""
       ? "#rtmedia_uploader_filelist"
-      : "#rtmedia_uploader_filelist-" + comment_media_id;
+      : "#rtmedia_uploader_filelist-" + safeCommentMediaId;
+
   plupload_delete =
-    typeof comment_media_id === "undefined"
+    typeof comment_media_id === "undefined" || safeCommentMediaId === ""
       ? "plupload_delete"
-      : "plupload_delete-" + comment_media_id;
+      : "plupload_delete-" + safeCommentMediaId;
+
+  var safe_file_name = file.name ? rtm_escape_html(file.name) : "";
 
   if (error == "") {
     upload_progress =
@@ -2540,12 +2582,12 @@ function rtmedia_selected_file_list(
       uploader != ""
         ? rtmedia_max_file_msg + uploader.settings.max_file_size
         : window.file_size_info;
-    title = "title='" + err_msg + "'";
+    title = "title='" + rtm_escape_html(err_msg) + "'";
     icon = '<i class="dashicons dashicons-info" ' + title + "></i>";
   } else if (error.code == -601) {
     alert(error.message + ". " + window.file_extn_info);
     err_msg = error.message + ". " + window.file_extn_info;
-    title = "title='" + err_msg + "'";
+    title = "title='" + rtm_escape_html(err_msg) + "'";
     icon = '<i class="dashicons dashicons-info" ' + title + "></i>";
   }
 
@@ -2563,10 +2605,9 @@ function rtmedia_selected_file_list(
   rtmedia_plupload_file += "</div>";
   rtmedia_plupload_file +=
     '<div class="plupload_file_name" title="' +
-    (file.name ? file.name : "") +
-    '">';
+    safe_file_name + '">';
   rtmedia_plupload_file += '<span class="plupload_file_name_wrapper">';
-  rtmedia_plupload_file += file.name ? file.name : "";
+  rtmedia_plupload_file += safe_file_name;
   rtmedia_plupload_file += "</span>";
   rtmedia_plupload_file += icon;
   rtmedia_plupload_file += "</div>";
@@ -2608,7 +2649,6 @@ function rtmedia_selected_file_list(
       );
     } else {
       var img = new mOxie.Image();
-
       img.onload = function () {
         this.embed(jQuery("#file_thumb_" + file.id).get(0), {
           width: 100,
@@ -2616,33 +2656,26 @@ function rtmedia_selected_file_list(
           crop: true,
         });
       };
-
       img.onembedded = function () {
         this.destroy();
       };
-
       img.onerror = function () {
         this.destroy();
       };
-
       img.load(file.getSource());
     }
   } else {
     jQuery.each(rtmedia_exteansions, function (key, value) {
       if (value.indexOf(ext) >= 0) {
         var media_thumbnail = "";
-
-        // Below condition is to show docs and files addon thumbnail.
         if (rtmedia_media_thumbs[ext]) {
           media_thumbnail = rtmedia_media_thumbs[ext];
         } else {
           media_thumbnail = rtmedia_media_thumbs[key];
         }
-
         jQuery("<img />", { src: media_thumbnail }).appendTo(
           "#file_thumb_" + file.id
         );
-
         return false;
       }
     });
@@ -3562,6 +3595,16 @@ function rtmedia_comment_media_upload(upload_comment) {
         typeof parent_id != "undefined" &&
         typeof parent_id_type != "undefined"
       ) {
+        // 1. Sanitize parent_id to allow digits only
+        parent_id = String(parent_id).replace(/[^0-9]/g, "");
+
+        // 2. Sanitize parent_id_type to conservative character set (alphanumeric, _, -)
+        parent_id_type = String(parent_id_type).replace(/[^A-Za-z0-9_\-]/g, "");
+
+        // 3. Abort if sanitization resulted in empty strings
+        if (parent_id === "" || parent_id_type === "") {
+            return;
+        }
         var widget_id = parent_id_type + "-" + parent_id;
 
         renderUploadercomment_media(widget_id, parent_id_type);
